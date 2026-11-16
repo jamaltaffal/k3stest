@@ -27,8 +27,8 @@ run-name: "apptrain · ${{ github.ref_name }}"
 
 env:
   NAMESPACE: apptrain
-  BACKEND_IMAGE: ghcr.io/jamaltaffal/apptrain-backend:1.0.0
-  FRONTEND_IMAGE: ghcr.io/jamaltaffal/apptrain-frontend:1.0.0
+  BACKEND_IMAGE: ghcr.io/jamaltaffal/apptrain-backend
+  FRONTEND_IMAGE: ghcr.io/jamaltaffal/apptrain-frontend
 
 jobs:
   deploy:
