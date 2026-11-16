@@ -138,11 +138,11 @@ jobs:
             console.log('Scripts:',JSON.stringify(p.scripts,null,2))"
  
           echo "===== INSTALL DEPENDENCIES ====="
-          npm ci --loglevel verbose
- 
+          npm install --loglevel verbose
+           
           echo "===== BUILD FRONTEND ====="
           npm run build
- 
+           
           echo "===== BUILD OUTPUT ====="
           ls -lah build/ dist/ 2>/dev/null || true
  
