@@ -211,17 +211,17 @@ jobs:
  
           sed -i \
             "s#image: ${BACKEND_IMAGE}:.*#image: ${BACKEND_IMAGE}:${IMAGE_TAG}#" \
-            ./jamal/apptrain/infra/backend/deployment.yaml
+            root/jamal/apptrain/infra/backend/deployment.yaml
  
           sed -i \
             "s#image: ${FRONTEND_IMAGE}:.*#image: ${FRONTEND_IMAGE}:${IMAGE_TAG}#" \
-            ./jamal/apptrain/infra/frontend/deployment.yaml
+            root/jamal/apptrain/infra/frontend/deployment.yaml
  
           echo "===== UPDATED IMAGES ====="
  
           grep -n "image:" \
-            ./jamal/apptrain/infra/backend/deployment.yaml \
-            ./jamal/apptrain/infra/frontend/deployment.yaml
+            root/jamal/apptrain/infra/backend/deployment.yaml \
+            root/jamal/apptrain/infra/frontend/deployment.yaml
  
       # ==========================================
       # 12. DEPLOY POSTGRESQL
