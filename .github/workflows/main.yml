@@ -23,7 +23,11 @@ permissions:
   contents: read
   packages: write
  
-run-name: "apptrain · ${{ github.ref_name }}"
+run-name: "apptrain · ${{ inputs.version || github.ref_name }}"
+ 
+concurrency:
+  group: apptrain-deployment
+  cancel-in-progress: false
  
 env:
   NAMESPACE: apptrain
@@ -36,15 +40,16 @@ jobs:
     runs-on: ubuntu-latest
  
     steps:
+ 
       # ==========================================
-      # 1. CHECKOUT
+      # 1. CHECKOUT REPOSITORY
       # ==========================================
  
       - name: Checkout repository
         uses: actions/checkout@v4
  
       # ==========================================
-      # 2. IMAGE VERSION
+      # 2. COMPUTE IMAGE TAG
       # ==========================================
  
       - name: Compute image tag
@@ -61,11 +66,16 @@ jobs:
             IMAGE_TAG="${INPUT_VERSION#v}"
           fi
  
+          if [[ ! "${IMAGE_TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "ERROR: Invalid version: ${IMAGE_TAG}"
+            exit 1
+          fi
+ 
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "Using image tag: ${IMAGE_TAG}"
  
       # ==========================================
-      # 3. KUBERNETES CONFIGURATION
+      # 3. CONFIGURE KUBERNETES
       # ==========================================
  
       - name: Configure kubeconfig
@@ -84,25 +94,43 @@ jobs:
         run: |
           set -euo pipefail
  
-          echo "===== CLUSTER INFO ====="
+          echo "===== VERIFY CLUSTER ====="
           timeout 20s kubectl --request-timeout=10s \
-            cluster-info
+            get namespace "${NAMESPACE}"
  
-          echo "===== NODES ====="
-          timeout 20s kubectl --request-timeout=10s \
-            get nodes -o wide
+          echo "===== EXISTING DEPLOYMENTS ====="
+          kubectl get deployments -n "${NAMESPACE}"
  
-          echo "===== NAMESPACE ====="
-          kubectl get namespace "${NAMESPACE}"
+          echo "===== VERIFY REQUIRED DEPLOYMENTS ====="
+          kubectl get deployment/postgres -n "${NAMESPACE}"
+          kubectl get deployment/backend -n "${NAMESPACE}"
+          kubectl get deployment/frontend -n "${NAMESPACE}"
  
-          echo "===== REQUIRED SECRETS ====="
+          echo "===== VERIFY CONTAINER NAMES ====="
+ 
+          BACKEND_CONTAINERS="$(kubectl get deployment/backend \
+            -n "${NAMESPACE}" \
+            -o jsonpath='{.spec.template.spec.containers[*].name}')"
+ 
+          FRONTEND_CONTAINERS="$(kubectl get deployment/frontend \
+            -n "${NAMESPACE}" \
+            -o jsonpath='{.spec.template.spec.containers[*].name}')"
+ 
+          echo "Backend containers: ${BACKEND_CONTAINERS}"
+          echo "Frontend containers: ${FRONTEND_CONTAINERS}"
+ 
+          echo "${BACKEND_CONTAINERS}" | tr ' ' '\n' | grep -Fxq backend
+          echo "${FRONTEND_CONTAINERS}" | tr ' ' '\n' | grep -Fxq frontend
+ 
+          echo "===== VERIFY SECRETS ====="
+ 
           kubectl get secret ghcr-secret \
             -n "${NAMESPACE}"
  
           kubectl get secret postgres-credentials \
             -n "${NAMESPACE}"
  
-          echo "Kubernetes verification successful"
+          echo "Kubernetes prerequisites verified"
  
       # ==========================================
       # 5. SETUP NODE.JS
@@ -114,7 +142,7 @@ jobs:
           node-version: "20"
  
       # ==========================================
-      # 6. DEBUG FRONTEND
+      # 6. DEBUG FRONTEND BUILD
       # ==========================================
  
       - name: Debug frontend build
@@ -131,32 +159,26 @@ jobs:
           echo "===== NPM VERSION ====="
           npm --version
  
-          echo "===== PACKAGE INFORMATION ====="
-          node -e \
-            "const p=require('./package.json'); \
-            console.log('Name:',p.name); \
-            console.log('Scripts:',JSON.stringify(p.scripts,null,2))"
- 
           echo "===== INSTALL DEPENDENCIES ====="
-          npm install --loglevel verbose
-           
+          npm install --no-fund
+ 
           echo "===== BUILD FRONTEND ====="
           npm run build
-           
+ 
           echo "===== BUILD OUTPUT ====="
-          ls -lah build/ dist/ 2>/dev/null || true
+          ls -lah build/
  
           echo "Frontend build successful"
  
       # ==========================================
-      # 7. DOCKER BUILDX
+      # 7. SETUP DOCKER BUILDX
       # ==========================================
  
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
  
       # ==========================================
-      # 8. GHCR LOGIN
+      # 8. LOGIN TO GHCR
       # ==========================================
  
       - name: Log in to GHCR
@@ -199,100 +221,69 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
  
       # ==========================================
-      # 11. UPDATE MANIFEST IMAGE TAGS
+      # 11. DEPLOY BACKEND - SET IMAGE
       # ==========================================
  
-      - name: Set image tags in manifests
+      - name: Deploy backend
+        id: deploy_backend
         shell: bash
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
         run: |
           set -euo pipefail
  
-          sed -i \
-            "s#image: ${BACKEND_IMAGE}:.*#image: ${BACKEND_IMAGE}:${IMAGE_TAG}#" \
-            infra/backend/deployment.yaml
+          echo "===== UPDATE BACKEND IMAGE ====="
  
-          sed -i \
-            "s#image: ${FRONTEND_IMAGE}:.*#image: ${FRONTEND_IMAGE}:${IMAGE_TAG}#" \
-            infra/frontend/deployment.yaml
+          kubectl -n "${NAMESPACE}" set image \
+            deployment/backend \
+            "backend=${BACKEND_IMAGE}:${IMAGE_TAG}"
  
-          echo "===== UPDATED IMAGES ====="
- 
-          grep -n "image:" \
-            infra/backend/deployment.yaml \
-            infra/frontend/deployment.yaml
- 
-      # ==========================================
-      # 12. DEPLOY POSTGRESQL
-      # ==========================================
- 
-      - name: Apply database
-        id: deploy_database
-        shell: bash
-        run: |
-          set -euo pipefail
- 
-          kubectl apply -f ~/jamal/apptrain/infra/namespace.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/database/configmap.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/database/pvc.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/database/service.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/database/deployment.yaml
- 
-          echo "Waiting for PostgreSQL..."
- 
-          kubectl -n "${NAMESPACE}" rollout status \
-            deployment/postgres --timeout=5m
- 
-      # ==========================================
-      # 13. DEPLOY BACKEND
-      # ==========================================
- 
-      - name: Deploy backend
-        shell: bash
-        run: |
-          set -euo pipefail
- 
-          kubectl apply -f ~/jamal/apptrain/infra/backend/configmap.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/backend/service.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/backend/deployment.yaml
- 
-          echo "Restarting backend..."
- 
-          kubectl -n "${NAMESPACE}" rollout restart \
-            deployment/backend
- 
-          echo "Waiting for backend rollout..."
+          echo "===== WAIT FOR BACKEND ROLLOUT ====="
  
           kubectl -n "${NAMESPACE}" rollout status \
             deployment/backend --timeout=5m
  
+          echo "===== BACKEND IMAGE ====="
+ 
+          kubectl -n "${NAMESPACE}" get deployment/backend \
+            -o jsonpath='{.spec.template.spec.containers[*].image}'
+ 
+          echo
+          echo "Backend deployment successful"
+ 
       # ==========================================
-      # 14. DEPLOY FRONTEND
+      # 12. DEPLOY FRONTEND - SET IMAGE
       # ==========================================
  
       - name: Deploy frontend
+        id: deploy_frontend
         shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
         run: |
           set -euo pipefail
  
-          kubectl apply -f ~/jamal/apptrain/infra/frontend/configmap.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/frontend/service.yaml
-          kubectl apply -f ~/jamal/apptrain/infra/frontend/deployment.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/ingress.yaml
+          echo "===== UPDATE FRONTEND IMAGE ====="
  
-          echo "Restarting frontend..."
+          kubectl -n "${NAMESPACE}" set image \
+            deployment/frontend \
+            "frontend=${FRONTEND_IMAGE}:${IMAGE_TAG}"
  
-          kubectl -n "${NAMESPACE}" rollout restart \
-            deployment/frontend
- 
-          echo "Waiting for frontend rollout..."
+          echo "===== WAIT FOR FRONTEND ROLLOUT ====="
  
           kubectl -n "${NAMESPACE}" rollout status \
             deployment/frontend --timeout=5m
  
+          echo "===== FRONTEND IMAGE ====="
+ 
+          kubectl -n "${NAMESPACE}" get deployment/frontend \
+            -o jsonpath='{.spec.template.spec.containers[*].image}'
+ 
+          echo
+          echo "Frontend deployment successful"
+ 
       # ==========================================
-      # 15. SHOW DEPLOYMENT STATUS
+      # 13. VERIFY DEPLOYMENTS
       # ==========================================
  
       - name: Show deployed resources
@@ -312,10 +303,6 @@ jobs:
           kubectl get services \
             -n "${NAMESPACE}" -o wide
  
-          echo "===== ENDPOINTS ====="
-          kubectl get endpoints \
-            -n "${NAMESPACE}"
- 
           echo "===== INGRESS ====="
           kubectl get ingress \
             -n "${NAMESPACE}"
@@ -324,20 +311,40 @@ jobs:
           kubectl get pvc \
             -n "${NAMESPACE}"
  
+          echo "===== IMAGE VERSIONS ====="
+ 
+          kubectl get deployment/backend \
+            deployment/frontend \
+            -n "${NAMESPACE}" \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.spec.template.spec.containers[*].image}{"\n"}{end}'
+ 
+          echo "Deployment completed successfully"
+ 
       # ==========================================
-      # 16. KUBERNETES FAILURE DIAGNOSTICS
+      # 14. DIAGNOSTICS ON DEPLOYMENT FAILURE
       # ==========================================
  
-      - name: Show diagnostics after deployment failure
+      - name: Show diagnostics after failure
         if: |
           failure() &&
           steps.verify_cluster.outcome == 'success' &&
-          steps.deploy_database.outcome != 'skipped'
+          (steps.deploy_backend.outcome != 'skipped' ||
+           steps.deploy_frontend.outcome != 'skipped')
         shell: bash
         run: |
           set +e
  
-          for app in postgres backend frontend; do
+          echo "===== DEPLOYMENTS ====="
+ 
+          timeout 15s kubectl --request-timeout=8s \
+            get deployments -n "${NAMESPACE}"
+ 
+          echo "===== PODS ====="
+ 
+          timeout 15s kubectl --request-timeout=8s \
+            get pods -n "${NAMESPACE}" -o wide
+ 
+          for app in backend frontend; do
  
             echo "===== ${app} DEPLOYMENT ====="
  
@@ -345,20 +352,13 @@ jobs:
               describe deployment "${app}" \
               -n "${NAMESPACE}"
  
-            echo "===== ${app} PODS ====="
- 
-            timeout 15s kubectl --request-timeout=8s \
-              get pods -n "${NAMESPACE}" \
-              -l app="${app}" -o wide
- 
             echo "===== ${app} LOGS ====="
  
             timeout 20s kubectl --request-timeout=8s \
               logs -n "${NAMESPACE}" \
-              -l app="${app}" \
+              deployment/"${app}" \
               --all-containers=true \
-              --tail=200 \
-              --max-log-requests=20
+              --tail=200
  
           done
  
