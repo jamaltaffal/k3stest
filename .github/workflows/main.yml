@@ -211,17 +211,17 @@ jobs:
  
           sed -i \
             "s#image: ${BACKEND_IMAGE}:.*#image: ${BACKEND_IMAGE}:${IMAGE_TAG}#" \
-            root/jamal/apptrain/infra/backend/deployment.yaml
+            ~/jamal/apptrain/infra/backend/deployment.yaml
  
           sed -i \
             "s#image: ${FRONTEND_IMAGE}:.*#image: ${FRONTEND_IMAGE}:${IMAGE_TAG}#" \
-            root/jamal/apptrain/infra/frontend/deployment.yaml
+            ~/jamal/apptrain/infra/frontend/deployment.yaml
  
           echo "===== UPDATED IMAGES ====="
  
           grep -n "image:" \
-            root/jamal/apptrain/infra/backend/deployment.yaml \
-            root/jamal/apptrain/infra/frontend/deployment.yaml
+            ~/jamal/apptrain/infra/backend/deployment.yaml \
+            ~/jamal/apptrain/infra/frontend/deployment.yaml
  
       # ==========================================
       # 12. DEPLOY POSTGRESQL
@@ -233,11 +233,11 @@ jobs:
         run: |
           set -euo pipefail
  
-          kubectl apply -f /root/jamal/apptrain/infra/namespace.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/database/configmap.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/database/pvc.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/database/service.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/database/deployment.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/namespace.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/database/configmap.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/database/pvc.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/database/service.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/database/deployment.yaml
  
           echo "Waiting for PostgreSQL..."
  
@@ -253,9 +253,9 @@ jobs:
         run: |
           set -euo pipefail
  
-          kubectl apply -f /root/jamal/apptrain/infra/backend/configmap.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/backend/service.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/backend/deployment.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/backend/configmap.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/backend/service.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/backend/deployment.yaml
  
           echo "Restarting backend..."
  
@@ -276,9 +276,9 @@ jobs:
         run: |
           set -euo pipefail
  
-          kubectl apply -f /root/jamal/apptrain/infra/frontend/configmap.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/frontend/service.yaml
-          kubectl apply -f /root/jamal/apptrain/infra/frontend/deployment.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/frontend/configmap.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/frontend/service.yaml
+          kubectl apply -f ~/jamal/apptrain/infra/frontend/deployment.yaml
           kubectl apply -f /root/jamal/apptrain/infra/ingress.yaml
  
           echo "Restarting frontend..."
