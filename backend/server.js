@@ -10,9 +10,9 @@ const port = process.env.PORT || 3002;
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'taskapp',
-  user: process.env.DB_USER || 'admin',
-  password: process.env.DB_PASSWORD || 'password123',
+  database: process.env.DB_NAME || 'apptrain',
+  user: process.env.DB_USER || 'apptrain',
+  password: process.env.DB_PASSWORD || 'jamal123',
 });
 
 // Middleware
