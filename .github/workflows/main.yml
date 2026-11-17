@@ -220,8 +220,8 @@ jobs:
           echo "===== UPDATED IMAGES ====="
  
           grep -n "image:" \
-            ~/jamal/apptrain/infra/backend/deployment.yaml \
-            ~/jamal/apptrain/infra/frontend/deployment.yaml
+            infra/backend/deployment.yaml \
+            infra/frontend/deployment.yaml
  
       # ==========================================
       # 12. DEPLOY POSTGRESQL
